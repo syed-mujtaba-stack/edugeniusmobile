@@ -3,7 +3,13 @@ import cors from 'cors';
 import morgan from 'morgan';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
+import path from 'path';
 import connectDB from './config/db';
+import errorHandler from './middleware/error';
+
+// Import routes
+import authRoutes from './routes/auth';
 
 // Load environment variables
 dotenv.config();
@@ -14,68 +20,59 @@ const app: Application = express();
 // Connect to MongoDB
 connectDB();
 
-// Middleware
+// Set security headers
+app.use(helmet());
+
+// Enable CORS
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true
+}));
+
+// Body parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS configuration
-const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:19006', // Expo web
-      'http://localhost:19000', // Expo dev client
-      'http://localhost:19001', // Expo dev client alternative
-      'http://localhost:3000',  // Common React dev server
-      'exp://',                 // All Expo apps
-      'http://',                // All HTTP requests (for development)
-      'https://'                // All HTTPS requests (for production)
-    ];
+// Cookie parser
+app.use(cookieParser());
 
-    if (process.env.NODE_ENV === 'development' || allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin))) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
-app.use(helmet());
-
-// Logging in development
+// Logging middleware in development
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Health check route
-app.get('/api/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', message: 'Server is running' });
-});
+// Mount routers
+app.use('/api/v1/auth', authRoutes);
 
-// Test endpoint
-app.get('/api/test', (req: Request, res: Response) => {
-  res.status(200).json({
-    success: true,
-    message: 'Backend is connected successfully!',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+// Health check endpoint
+app.get('/api/health', (req: Request, res: Response) => {
+  res.status(200).json({ 
+    success: true, 
+    message: 'Server is running',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString()
   });
 });
 
-// 404 handler
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ message: 'Route not found' });
-});
+// Serve static assets in production
+if (process.env.NODE_ENV === 'production') {
+  // Set static folder
+  app.use(express.static(path.join(__dirname, '../client/build')));
+
+  app.get('*', (req: Request, res: Response) => {
+    res.sendFile(path.resolve(__dirname, '../client/build/index.html'));
+  });
+}
 
 // Error handling middleware
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+app.use(errorHandler);
+
+// 404 handler
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ 
+    success: false,
+    message: 'Route not found' 
+  });
 });
 
 export default app;
